@@ -1,4 +1,4 @@
-#include "OV2640.h" 
+#include "OV2640.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WiFiClient.h>
@@ -7,38 +7,19 @@
 #include "OV2640Streamer.h"
 #include "CRtspSession.h"
 
-// #define ENABLE_OLED // 如果想使用 OLED，启用此宏
-// #define SOFTAP_MODE // 如果要运行自己的软AP，启用此宏,。ap和sta模式不能同时启用，ap是
 #define ENABLE_WEBSERVER // 启用 Web 服务器
 #define ENABLE_RTSPSERVER // 启用 RTSP 服务器
 
-#ifdef ENABLE_OLED
-#include "SSD1306.h"
-#define OLED_ADDRESS 0x3c // OLED 地址
-#define I2C_SDA 14 // I2C SDA 引脚
-#define I2C_SCL 13 // I2C SCL 引脚
-SSD1306Wire display(OLED_ADDRESS, I2C_SDA, I2C_SCL, GEOMETRY_128_32);
-bool hasDisplay; // 在运行时探测设备
-#endif
-
 OV2640 cam; // 创建摄像头对象
 
-#ifdef ENABLE_WEBSERVER
 WebServer server(80); // 创建 Web 服务器，端口为 80
-#endif
 
-#ifdef ENABLE_RTSPSERVER
-WiFiServer rtspServer(8554); // 创建 RTSP 服务器，端口为 8554
-#endif
+IPAddress ip(192, 168, 137,1); // 设置 IP 地址
+WiFiServer rtspServer(ip, 8554); // 创建 RTSP 服务器，端口为 8554
 
-#ifdef SOFTAP_MODE
-IPAddress apIP = IPAddress(192, 168, 1, 1); // 软AP 模式下的 IP 地址
-#else
+
 #include "wifikeys.h" // 包含 WiFi 密钥文件
 
-#endif
-
-#ifdef ENABLE_WEBSERVER
 // 处理 JPG 流媒体
 void handle_jpg_stream(void)
 {
@@ -93,32 +74,9 @@ void handleNotFound()
     message += "\n";
     server.send(200, "text/plain", message); // 发送响应
 }
-#endif
-
-// 在 LCD 上显示消息
-void lcdMessage(String msg)
-{
-  #ifdef ENABLE_OLED
-    if(hasDisplay) {
-        display.clear(); // 清空显示
-        display.drawString(128 / 2, 32 / 2, msg); // 绘制消息
-        display.display(); // 更新显示
-    }
-  #endif
-}
 
 void setup()
 {
-  #ifdef ENABLE_OLED
-    hasDisplay = display.init(); // 初始化 OLED
-    if(hasDisplay) {
-        display.flipScreenVertically(); // 反转屏幕
-        display.setFont(ArialMT_Plain_16); // 设置字体
-        display.setTextAlignment(TEXT_ALIGN_CENTER); // 设置文本对齐方式
-    }
-  #endif
-    lcdMessage("booting"); // 启动消息
-
     Serial.begin(115200); // 初始化串口
     while (!Serial)
     {
@@ -128,28 +86,7 @@ void setup()
 
     IPAddress ip;
 
-#ifdef SOFTAP_MODE
-    const char *hostname = "devcam"; // 软AP 名称
-    // WiFi.hostname(hostname); // FIXME - 找到未定义的原因
-    lcdMessage("starting softAP"); // 启动软AP 消息
-    WiFi.mode(WIFI_AP); // 设置为 AP 模式
-    WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0)); // 配置软AP
-    bool result = WiFi.softAP(hostname, "12345678", 1, 0); // 启动软AP
-    if (!result)
-    {
-        Serial.println("AP Config failed."); // 配置失败
-        return;
-    }
-    else
-    {
-        Serial.println("AP Config Success."); // 配置成功
-        Serial.print("AP MAC: ");
-        Serial.println(WiFi.softAPmacAddress()); // 打印 AP MAC 地址
 
-        ip = WiFi.softAPIP(); // 获取软AP IP 地址
-    }
-#else
-    lcdMessage(String("join ") + ssid); // 连接 WiFi 消息
     WiFi.mode(WIFI_STA); // 设置为 STA 模式
     WiFi.begin(ssid, password); // 连接 WiFi
     while (WiFi.status() != WL_CONNECTED) // 等待连接
@@ -161,20 +98,13 @@ void setup()
     Serial.println(F("WiFi connected")); // WiFi 连接成功
     Serial.println("");
     Serial.println(ip); // 打印本地 IP 地址
-#endif
 
-    lcdMessage(ip.toString()); // 显示 IP 地址
-
-#ifdef ENABLE_WEBSERVER
     server.on("/", HTTP_GET, handle_jpg_stream); // 设置根路径处理函数
     server.on("/jpg", HTTP_GET, handle_jpg); // 设置 JPG 路径处理函数
     server.onNotFound(handleNotFound); // 设置未找到处理函数
     server.begin(); // 启动服务器
-#endif
 
-#ifdef ENABLE_RTSPSERVER
     rtspServer.begin(); // 启动 RTSP 服务器
-#endif
 }
 
 CStreamer *streamer; // 流媒体对象
@@ -183,11 +113,8 @@ WiFiClient client; // FIXME, 支持多个客户端
 
 void loop()
 {
-#ifdef ENABLE_WEBSERVER
     server.handleClient(); // 处理客户端请求
-#endif
 
-#ifdef ENABLE_RTSPSERVER
     uint32_t msecPerFrame = 100; // 每帧时间
     static uint32_t lastimage = millis(); // 上一帧时间
 
@@ -218,11 +145,9 @@ void loop()
         client = rtspServer.accept(); // 接受客户端连接
 
         if(client) {
-            //streamer = new SimStreamer(&client, true); // 我们的 UDP/TCP 基于 RTP 的流媒体
             streamer = new OV2640Streamer(&client, cam); // 创建流媒体对象
 
             session = new CRtspSession(&client, streamer); // 创建 RTSP 会话
         }
     }
-#endif
 }
